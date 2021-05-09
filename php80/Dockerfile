@@ -1,0 +1,47 @@
+FROM php:8.0-apache
+
+RUN apt-get update && apt-get install -y \
+        unzip \
+        libfreetype6-dev \
+        libjpeg62-turbo-dev \
+        libpng-dev \
+        libaio1 \
+    && docker-php-ext-install -j$(nproc) iconv gettext 
+
+COPY docker-php.conf /etc/apache2/conf-enabled/docker-php.conf
+
+RUN printf "log_errors = On \nerror_log = /dev/stderr\n" > /usr/local/etc/php/conf.d/php-logs.ini
+
+RUN a2enmod rewrite
+
+# Oracle instantclient
+ADD ./instantclient/12.2.0.1.0/instantclient-basiclite-linux.x64-12.2.0.1.0.zip /tmp/
+ADD ./instantclient/12.2.0.1.0/instantclient-sdk-linux.x64-12.2.0.1.0.zip /tmp/
+ADD ./instantclient/12.2.0.1.0/instantclient-sqlplus-linux.x64-12.2.0.1.0.zip /tmp/
+
+RUN unzip /tmp/instantclient-basiclite-linux.x64-12.2.0.1.0.zip -d /usr/local/
+RUN unzip /tmp/instantclient-sdk-linux.x64-12.2.0.1.0.zip -d /usr/local/
+RUN unzip /tmp/instantclient-sqlplus-linux.x64-12.2.0.1.0.zip -d /usr/local/
+
+RUN ln -s /usr/local/instantclient_12_2 /usr/local/instantclient
+RUN ln -s /usr/local/instantclient/libclntsh.so.12.1 /usr/local/instantclient/libclntsh.so
+RUN ln -s /usr/local/instantclient/libocci.so.12.1 /usr/local/instantclient/libocci.so
+RUN ln -s /usr/local/instantclient/sqlplus /usr/bin/sqlplus
+
+ENV LD_LIBRARY_PATH  /usr/local/instantclient:${LD_LIBRARY_PATH}
+
+RUN echo 'instantclient,/usr/local/instantclient' | pecl install oci8
+RUN echo "extension=oci8" > /usr/local/etc/php/conf.d/php-oci8.ini
+
+RUN ldconfig
+RUN docker-php-ext-enable oci8
+
+RUN docker-php-ext-configure pdo_oci --with-pdo-oci=instantclient,/usr/local/instantclient \
+       && docker-php-ext-install \
+               pdo_oci
+
+RUN apt-get install nano -y
+
+RUN echo "<?php echo phpinfo(); ?>" > /var/www/html/phpinfo.php
+
+EXPOSE 80
